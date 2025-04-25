@@ -58,7 +58,9 @@ def crop_strips(binary, n_strips=5, overlap=0.2):
     Return list of n_strips horizontal sub-images of `binary`.  
     overlap is fraction of strip height to overlap (to avoid missing grid lines at edges).
     """
-    h, w = binary.shape
+    h, w = binary.shape # w not used
+    if n_strips < 1:
+        raise ValueError("n_strips must be at least 1")
     strip_h = int(np.ceil(h / n_strips))
     step = int(strip_h * (1 - overlap))
     strips = []
