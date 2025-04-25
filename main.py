@@ -2,11 +2,13 @@ from ecg_image_loader import load_and_preprocess_image
 from grid_detection import robust_grid_spacing
 from isolate_waveform import isolate_waveform
 from waveform_extraction import extract_ecg_signal
+import numpy as np
 import cv2
+import matplotlib.pyplot as plt
 
 def main():
     # Load and preprocess the image
-    path = 'images/sample3.png'  # Replace with your image path
+    path = 'images/sample.png'  # Replace with your image path
     print(f"Loading image from: {path}")
     gray, binary, gaus = load_and_preprocess_image(path)
 
@@ -24,17 +26,28 @@ def main():
     # Extract 1D ECG signal in real-world units
     times, volts, baseline = extract_ecg_signal(waveform, dx, dy, debug=True)
 
-    # After waveform extraction
-    waveform = cv2.dilate(waveform, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3,3)), iterations=1)
+    # After waveform isolation
+    # Detect contours of the waveform
+    contours, _ = cv2.findContours(waveform, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    # Optionally, display images
-    cv2.imshow('Gray Image', gray)
-    cv2.imshow('Binary Image', binary)
-    cv2.imshow('Waveform Only', waveform)
+    # Create a blank canvas to draw the interpolated waveform
+    interpolated_waveform = np.zeros_like(waveform)
 
-    # Wait for a key press and close windows
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    # Iterate through each contour and interpolate gaps
+    for contour in contours:
+        # Approximate the contour to reduce noise
+        epsilon = 0.01 * cv2.arcLength(contour, True)
+        approx = cv2.approxPolyDP(contour, epsilon, True)
+
+        # Draw the approximated contour on the blank canvas
+        cv2.polylines(interpolated_waveform, [approx], isClosed=False, color=255, thickness=2)
+
+    # Optionally, display the result
+    plt.figure(figsize=(12, 4))
+    plt.subplot(1, 2, 1); plt.title('Original Waveform'); plt.imshow(waveform, cmap='gray')
+    plt.subplot(1, 2, 2); plt.title('Interpolated Waveform'); plt.imshow(interpolated_waveform, cmap='gray')
+    plt.tight_layout()
+    plt.show()
 
 if __name__ == "__main__":
     main()
