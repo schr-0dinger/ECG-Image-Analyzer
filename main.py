@@ -50,9 +50,16 @@ def main():
     plt.tight_layout()
     plt.show()
 
-    # Prompt the user to select the ROI for the desired lead
+    # Convert binary image to a color image for better visibility
+    color_binary = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+
+    # Add a grid or crosshair (optional)
+    cv2.line(color_binary, (0, binary.shape[0] // 2), (binary.shape[1], binary.shape[0] // 2), (0, 255, 0), 1)
+    cv2.line(color_binary, (binary.shape[1] // 2, 0), (binary.shape[1] // 2, binary.shape[0]), (0, 255, 0), 1)
+
+    # Prompt the user to select the ROI
     print("Please select the region corresponding to the desired lead (e.g., Lead II).")
-    roi = cv2.selectROI("Select ROI", binary, showCrosshair=True, fromCenter=False)
+    roi = cv2.selectROI("Select ROI", color_binary, showCrosshair=True, fromCenter=False)
     cv2.destroyWindow("Select ROI")
 
     # Crop the selected ROI
@@ -66,17 +73,23 @@ def main():
     plt.show()
 
     # Convert the binary image into a 1D signal directly
-    # Should originally be done on the isolated waveform, but for this example we will use the binary image
-    signal_1d = np.sum(binary, axis=0)  # Sum along the vertical axis
+    signal_1d = np.sum(roi_waveform, axis=0)  # Sum along the vertical axis
+
+    # Smooth the signal using a moving average
+    window_size = 5  # Adjust the window size as needed
+    smoothed_signal = np.convolve(signal_1d, np.ones(window_size)/window_size, mode='same')
+
+    # Dynamically set the height threshold
+    height_threshold = np.max(smoothed_signal) * 0.05  # Adjust the multiplier as needed
 
     # Detect peaks (R-waves)
-    peaks, _ = find_peaks(signal_1d, height=50, distance=dx*5)
+    peaks, _ = find_peaks(smoothed_signal, height=height_threshold, distance=dx*4, prominence=15)
 
     # Plot the detected peaks
     plt.figure(figsize=(10, 4))
-    plt.plot(signal_1d, label="1D Signal (with grid)")
-    plt.plot(peaks, signal_1d[peaks], "rx", label="R-wave Peaks")
-    plt.title("R-wave Peak Detection (Without Isolation)")
+    plt.plot(smoothed_signal, label="Smoothed Signal")
+    plt.plot(peaks, smoothed_signal[peaks], "rx", label="R-wave Peaks")
+    plt.title("Improved R-wave Peak Detection")
     plt.legend()
     plt.show()
 
