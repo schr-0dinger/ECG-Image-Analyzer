@@ -6,7 +6,7 @@ import cv2
 
 def main():
     # Load and preprocess the image
-    path = 'images/ed1.png'  # Replace with your image path
+    path = 'images/sample.png'  # Replace with your image path
     print(f"Loading image from: {path}")
     gray, binary, gaus = load_and_preprocess_image(path)
 
@@ -28,9 +28,9 @@ def main():
     waveform = cv2.dilate(waveform, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3,3)), iterations=1)
 
     # Optionally, display images
-    # cv2.imshow('Gray Image', gray)
-    # cv2.imshow('Binary Image', binary)
-    # cv2.imshow('Waveform Only', waveform)
+    cv2.imshow('Gray Image', gray)
+    cv2.imshow('Binary Image', binary)
+    cv2.imshow('Waveform Only', waveform)
 
     # Wait for a key press and close windows
     cv2.waitKey(0)

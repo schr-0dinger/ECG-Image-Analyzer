@@ -53,7 +53,7 @@ def get_grid_spacing(thresh, debug=False):
 
     return dx, dy
 
-def crop_strips(binary, n_strips=5, overlap=0.2):
+def crop_strips(binary, n_strips=6, overlap=0.2):
     """
     Return list of n_strips horizontal sub-images of `binary`.  
     overlap is fraction of strip height to overlap (to avoid missing grid lines at edges).
