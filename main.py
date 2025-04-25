@@ -6,7 +6,7 @@ import cv2
 
 def main():
     # Load and preprocess the image
-    path = 'images/sample.png'  # Replace with your image path
+    path = 'images/sample3.png'  # Replace with your image path
     print(f"Loading image from: {path}")
     gray, binary, gaus = load_and_preprocess_image(path)
 
