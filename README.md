@@ -48,6 +48,44 @@ ecg-analyzer/
     └── sample*.png
 ```
 
+```mermaid
+graph TD
+    subgraph Input
+        A[load_and_prepare_image]
+    end
+
+    subgraph Preprocessing
+        B[detect_grid_spacing]
+        C[isolate_and_extract_waveform]
+        D[interpolate_waveform]
+    end
+
+    subgraph Signal Extraction
+        E[select_roi]
+        F[extract_1d_signal]
+    end
+
+    subgraph Analysis
+        G[detect_r_peaks]
+        H[calculate_heart_rate]
+    end
+
+    subgraph Visualization
+        I[plot_results]
+    end
+
+    %% Connections
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    G --> H
+    H --> I
+```    
+
+
 ## 📊 Output Example
 - Original + Interpolated waveform
 - ROI view (lead selection)
