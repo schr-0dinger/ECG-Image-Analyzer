@@ -13,10 +13,10 @@ def isolate_waveform(image, dx=None, dy=None, debug=True):
         binary = image.copy()
 
     # Use smaller kernels to avoid erasing the trace
-    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, ( 23, 1))
+    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, ( 19, 1))
     horizontal_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, horizontal_kernel, iterations=1)
 
-    vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 23))
+    vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 19))
     vertical_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, vertical_kernel, iterations=1)
 
     grid_mask = cv2.bitwise_or(horizontal_lines, vertical_lines)
