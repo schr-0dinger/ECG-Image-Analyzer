@@ -126,16 +126,26 @@ class ECGProcessor:
         r_wave_distances, large_boxes, heart_rates = self.calculate_heart_rate()
 
         print("R-wave distances (in pixels):", r_wave_distances)
-        print("Number of small boxes between R-waves:", large_boxes)
+        print("Number of large boxes between R-waves:", large_boxes)
         print("Heart rates (bpm):", heart_rates)
 
-        mode_heart_rate = mode(heart_rates).mode
-        avg_mode_heart_rate = np.mean(mode_heart_rate)
-        print(f"Average of Mode Heart Rate: {avg_mode_heart_rate:.2f} bpm")
+        def relative_mode(heart_rates, threshold=5):
+            groups = []
+            for hr in heart_rates:
+                group = [x for x in heart_rates if abs(x - hr) <= threshold]
+                if len(group) > 1:
+                    groups.append(group)
+            if groups:
+                largest_group = max(groups, key=len)
+                return np.mean(largest_group)
+            else:
+                return np.mean(heart_rates)
 
+        avg_mode_heart_rate = relative_mode(heart_rates)
+        print(f"Average heart rate (mode): {avg_mode_heart_rate:.2f} bpm")
 
 if __name__ == "__main__":
-    processor = ECGProcessor(image_path='images/ed1.png')
+    processor = ECGProcessor(image_path='images/sample4.png')
     try:
         processor.run_pipeline()
     except Exception as e:
