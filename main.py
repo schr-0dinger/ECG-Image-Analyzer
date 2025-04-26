@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 
 def main():
     # Load and preprocess the image
-    path = 'images/sample.png'  # Replace with your image path
+    path = 'images/sample4.png'  # Replace with your image path
     print(f"Loading image from: {path}")
     gray, binary, gaus = load_and_preprocess_image(path)
 
@@ -64,7 +64,7 @@ def main():
 
     # Crop the selected ROI
     x, y, w, h = roi
-    roi_waveform = interpolated_waveform[int(y):int(y+h), int(x):int(x+w)]
+    roi_waveform = waveform[int(y):int(y+h), int(x):int(x+w)]
 
     # Display the cropped ROI for confirmation
     plt.figure(figsize=(6, 4))
@@ -82,29 +82,52 @@ def main():
     # Dynamically set the height threshold
     height_threshold = np.max(smoothed_signal) * 0.05  # Adjust the multiplier as needed
 
-    # Detect peaks (R-waves)
-    peaks, _ = find_peaks(smoothed_signal, height=height_threshold, distance=dx*4, prominence=15)
+    # Estimate signal noise level
+    signal_std = np.std(smoothed_signal)
+
+    # Set prominence dynamically based on noise
+    prominence_threshold = 1.5 * signal_std  # can adjust 1.5 to 2.0 based on sensitivity
+
+    # First pass: detect all possible peaks
+    initial_peaks, properties = find_peaks(
+    smoothed_signal,
+    height=height_threshold,
+    distance=dx*2,
+    prominence=prominence_threshold,
+    width=1)
+
+    # Adaptive width filtering
+    # Calculate median width among initial detected peaks
+    if 'widths' in properties and len(properties['widths']) > 0:
+        median_width = np.median(properties['widths'])
+        width_threshold = 0.5 * median_width  # keep only peaks wider than 50% of median width
+    
+        # Keep only valid peaks
+        valid_indices = properties['widths'] >= width_threshold
+        final_peaks = initial_peaks[valid_indices]
+    else:
+        final_peaks = initial_peaks  # fallback if no width info available
 
     # Plot the detected peaks
     plt.figure(figsize=(10, 4))
     plt.plot(smoothed_signal, label="Smoothed Signal")
-    plt.plot(peaks, smoothed_signal[peaks], "rx", label="R-wave Peaks")
+    plt.plot(final_peaks, smoothed_signal[final_peaks], "rx", label="R-wave Peaks")
     plt.title("Improved R-wave Peak Detection")
     plt.legend()
     plt.show()
 
     # Calculate distances between consecutive R-wave peaks (in pixels)
-    r_wave_distances = np.diff(peaks)
+    r_wave_distances = np.diff(final_peaks)
 
     # Convert pixel distances to the number of small boxes (1 mm = dx pixels)
-    small_boxes = r_wave_distances / dx
+    large_boxes = r_wave_distances / dx
 
     # Calculate heart rate for each R-R interval
-    heart_rates = 1500 / small_boxes
+    heart_rates = 300 / large_boxes
 
     # Display the results
     print("R-wave distances (in pixels):", r_wave_distances)
-    print("Number of small boxes between R-waves:", small_boxes)
+    print("Number of small boxes between R-waves:", large_boxes)
     print("Heart rates (bpm):", heart_rates)
 
     # Calculate the average heart rate
