@@ -1,13 +1,20 @@
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
-from scipy.signal import find_peaks
+from scipy.signal import find_peaks, butter, filtfilt
 from scipy.stats import mode
 
 from ecg_image_loader import load_and_preprocess_image
 from grid_detection import robust_grid_spacing
 from isolate_waveform import isolate_waveform
 from waveform_extraction import extract_ecg_signal
+
+def bandpass_filter(signal, lowcut, highcut, fs, order=4):
+    nyquist = 0.5 * fs
+    low = lowcut / nyquist
+    high = highcut / nyquist
+    b, a = butter(order, [low, high], btype='band')
+    return filtfilt(b, a, signal)
 
 class ECGProcessor:
     def __init__(self, image_path):
@@ -25,7 +32,79 @@ class ECGProcessor:
         self.roi_waveform = None
         self.signal = None
         self.peaks = None
+        self.sampling_freq = None
 
+    def calculate_sampling_frequency(self):
+        """Calculate sampling frequency from grid calibration (dx)"""
+        if self.dx is None:
+            raise ValueError("Grid spacing not detected")
+        self.sampling_freq = 25 * self.dx  # 25 mm/s * pixels/mm
+        return self.sampling_freq
+
+    def _adaptive_threshold(self, signal, fs):
+        """Dynamic threshold calculation"""
+        thresholds = {
+            'peak': np.mean(signal) * 2,
+            'noise': np.mean(signal) * 0.5,
+            'rr_low': 0.3,  # 300ms refractory
+            'rr_high': 2.0  # 2000ms timeout
+        }
+        window = int(fs * 2)
+        for i in range(0, len(signal), window):
+            segment = signal[i:i+window]
+            thresholds['peak'] = 0.875 * thresholds['peak'] + 0.125 * np.max(segment)
+            thresholds['noise'] = 0.875 * thresholds['noise'] + 0.125 * np.median(segment)
+        return thresholds
+
+    def _find_qrs_peaks(self, signal, thresholds, fs):
+        """Peak detection with physiological constraints"""
+        peaks, _ = find_peaks(
+            signal,
+            height=thresholds['peak'],
+            distance=int(fs * thresholds['rr_low'])
+        )
+        
+        valid_peaks = []
+        prev_peak = -np.inf
+        for peak in peaks:
+            rr_interval = (peak - prev_peak)/fs
+            if rr_interval > thresholds['rr_low']:
+                valid_peaks.append(peak)
+                prev_peak = peak
+        return np.array(valid_peaks)
+
+    def detect_r_peaks(self):
+        """Main detection method using Pan-Tompkins algorithm"""
+        # Calculate sampling frequency from grid calibration
+        fs = self.calculate_sampling_frequency()
+        
+        # Validate signal quality
+        if np.std(self.signal) < 0.1 * np.max(self.signal):
+            raise ValueError("Signal too noisy for reliable detection")
+            
+        # 1. Bandpass filter
+        filtered = bandpass_filter(self.signal, 5, 15, fs, order=2)
+        
+        # 2. Differentiation and squaring
+        diff = np.diff(filtered, prepend=filtered[0])
+        squared = diff ** 2
+        
+        # 3. Moving integration
+        window_size = int(fs * 0.15)
+        integrated = np.convolve(squared, np.ones(window_size)/window_size, 'same')
+        
+        # 4. Adaptive thresholding
+        thresholds = self._adaptive_threshold(integrated, fs)
+        
+        # 5. Peak detection
+        self.peaks = self._find_qrs_peaks(integrated, thresholds, fs)
+        
+        # Validate heart rate
+        rr_intervals = np.diff(self.peaks)/fs
+        hr = 60 / np.median(rr_intervals) if len(rr_intervals) > 0 else 0
+        if not (40 < hr < 180):
+            print(f"Warning: Unusual heart rate detected: {hr:.1f} bpm")
+    
     def load_and_prepare_image(self):
         print(f"Loading image from: {self.image_path}")
         self.gray, self.binary, self.gaus = load_and_preprocess_image(self.image_path)
@@ -145,7 +224,7 @@ class ECGProcessor:
         print(f"Average heart rate (mode): {avg_mode_heart_rate:.2f} bpm")
 
 if __name__ == "__main__":
-    processor = ECGProcessor(image_path='images/sample4.png')
+    processor = ECGProcessor(image_path='images/sample.png')
     try:
         processor.run_pipeline()
     except Exception as e:
