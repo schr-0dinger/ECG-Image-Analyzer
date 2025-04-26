@@ -1,138 +1,142 @@
+import numpy as np
+import cv2
+import matplotlib.pyplot as plt
+from scipy.signal import find_peaks
+from scipy.stats import mode
+
 from ecg_image_loader import load_and_preprocess_image
 from grid_detection import robust_grid_spacing
 from isolate_waveform import isolate_waveform
 from waveform_extraction import extract_ecg_signal
-from scipy.signal import find_peaks
-import numpy as np
-import cv2
-import matplotlib.pyplot as plt
 
-def main():
-    # Load and preprocess the image
-    path = 'images/sample4.png'  # Replace with your image path
-    print(f"Loading image from: {path}")
-    gray, binary, gaus = load_and_preprocess_image(path)
+class ECGProcessor:
+    def __init__(self, image_path):
+        self.image_path = image_path
+        self.gray = None
+        self.binary = None
+        self.gaus = None
+        self.dx = None
+        self.dy = None
+        self.waveform = None
+        self.times = None
+        self.volts = None
+        self.baseline = None
+        self.interpolated_waveform = None
+        self.roi_waveform = None
+        self.signal = None
+        self.peaks = None
 
-    # Determine grid spacing (pixels per mm)
-    try:
-        dx, dy = robust_grid_spacing(binary, debug=True)
-    except RuntimeError as e:
-        print(f"Grid detection failed: {e}")
-        return
-    print(f"1 mm grid ≈ {dx:.2f}px horizontally, {dy:.2f}px vertically")
+    def load_and_prepare_image(self):
+        print(f"Loading image from: {self.image_path}")
+        self.gray, self.binary, self.gaus = load_and_preprocess_image(self.image_path)
 
-    # Isolate the ECG waveform (remove grid) from binary iamge
-    waveform = isolate_waveform(binary, dx=dx, dy=dy, debug=True)
+    def detect_grid_spacing(self):
+        try:
+            self.dx, self.dy = robust_grid_spacing(self.binary, debug=True)
+            print(f"1 mm grid ≈ {self.dx:.2f}px horizontally, {self.dy:.2f}px vertically")
+        except RuntimeError as e:
+            print(f"Grid detection failed: {e}")
+            raise
 
-    # Extract 1D ECG signal in real-world units
-    times, volts, baseline = extract_ecg_signal(waveform, dx, dy, debug=True)
+    def isolate_and_extract_waveform(self):
+        self.waveform = isolate_waveform(self.binary, dx=self.dx, dy=self.dy, debug=True)
+        self.times, self.volts, self.baseline = extract_ecg_signal(self.waveform, dx=self.dx, dy=self.dy, debug=True)
 
-    # After waveform isolation
-    # Detect contours of the waveform
-    contours, _ = cv2.findContours(waveform, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    def interpolate_waveform(self):
+        contours, _ = cv2.findContours(self.waveform, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        self.interpolated_waveform = np.zeros_like(self.waveform)
+        for contour in contours:
+            epsilon = 0.01 * cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, epsilon, True)
+            cv2.polylines(self.interpolated_waveform, [approx], isClosed=False, color=255, thickness=2)
 
-    # Create a blank canvas to draw the interpolated waveform
-    interpolated_waveform = np.zeros_like(waveform)
+    def select_roi(self):
+        color_binary = cv2.cvtColor(self.binary, cv2.COLOR_GRAY2BGR)
+        h, w = self.binary.shape
+        cv2.line(color_binary, (0, h//2), (w, h//2), (0, 255, 0), 1)
+        cv2.line(color_binary, (w//2, 0), (w//2, h), (0, 255, 0), 1)
 
-    # Iterate through each contour and interpolate gaps
-    for contour in contours:
-        # Approximate the contour to reduce noise
-        epsilon = 0.01 * cv2.arcLength(contour, True)
-        approx = cv2.approxPolyDP(contour, epsilon, True)
+        print("Please select the region corresponding to the desired lead (e.g., Lead II).")
+        roi = cv2.selectROI("Select ROI", color_binary, showCrosshair=True, fromCenter=False)
+        cv2.destroyWindow("Select ROI")
 
-        # Draw the approximated contour on the blank canvas
-        cv2.polylines(interpolated_waveform, [approx], isClosed=False, color=255, thickness=2)
+        x, y, w, h = roi
+        if w == 0 or h == 0:
+            raise ValueError("Invalid ROI selected.")
+        self.roi_waveform = self.waveform[y:y+h, x:x+w]
 
-    # Optionally, display the result
-    plt.figure(figsize=(12, 4))
-    plt.subplot(1, 2, 1); plt.title('Original Waveform'); plt.imshow(waveform, cmap='gray')
-    plt.subplot(1, 2, 2); plt.title('Interpolated Waveform'); plt.imshow(interpolated_waveform, cmap='gray')
-    plt.tight_layout()
-    plt.show()
+        if self.roi_waveform.size == 0:
+            raise ValueError("The selected ROI is empty.")
 
-    # Convert binary image to a color image for better visibility
-    color_binary = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+    def extract_1d_signal(self, window_size=5):
+        signal_1d = np.sum(self.roi_waveform, axis=0)
+        self.signal = np.convolve(signal_1d, np.ones(window_size)/window_size, mode='same')
 
-    # Add a grid or crosshair (optional)
-    cv2.line(color_binary, (0, binary.shape[0] // 2), (binary.shape[1], binary.shape[0] // 2), (0, 255, 0), 1)
-    cv2.line(color_binary, (binary.shape[1] // 2, 0), (binary.shape[1] // 2, binary.shape[0]), (0, 255, 0), 1)
+    def detect_r_peaks(self):
+        height_thresh = np.max(self.signal) * 0.05
+        signal_std = np.std(self.signal)
+        prominence_thresh = 1.5 * signal_std
 
-    # Prompt the user to select the ROI
-    print("Please select the region corresponding to the desired lead (e.g., Lead II).")
-    roi = cv2.selectROI("Select ROI", color_binary, showCrosshair=True, fromCenter=False)
-    cv2.destroyWindow("Select ROI")
+        initial_peaks, properties = find_peaks(
+            self.signal, height=height_thresh, distance=self.dx*2, prominence=prominence_thresh, width=1
+        )
 
-    # Crop the selected ROI
-    x, y, w, h = roi
-    roi_waveform = waveform[int(y):int(y+h), int(x):int(x+w)]
+        if 'widths' in properties and len(properties['widths']) > 0:
+            median_width = np.median(properties['widths'])
+            valid_indices = properties['widths'] >= 0.5 * median_width
+            self.peaks = initial_peaks[valid_indices]
+        else:
+            self.peaks = initial_peaks
 
-    # Display the cropped ROI for confirmation
-    plt.figure(figsize=(6, 4))
-    plt.title("Selected ROI (Lead II)")
-    plt.imshow(roi_waveform, cmap='gray')
-    plt.show()
+    def calculate_heart_rate(self):
+        r_wave_distances = np.diff(self.peaks)
+        large_boxes = r_wave_distances / self.dx
+        heart_rates = 300 / large_boxes
+        return r_wave_distances, large_boxes, heart_rates
 
-    # Convert the binary image into a 1D signal directly
-    signal_1d = np.sum(roi_waveform, axis=0)  # Sum along the vertical axis
+    def plot_results(self):
+        plt.figure(figsize=(12, 4))
+        plt.subplot(1, 2, 1); plt.title('Original Waveform'); plt.imshow(self.waveform, cmap='gray')
+        plt.subplot(1, 2, 2); plt.title('Interpolated Waveform'); plt.imshow(self.interpolated_waveform, cmap='gray')
+        plt.tight_layout()
+        plt.show()
 
-    # Smooth the signal using a moving average
-    window_size = 5  # Adjust the window size as needed
-    smoothed_signal = np.convolve(signal_1d, np.ones(window_size)/window_size, mode='same')
+        plt.figure(figsize=(6, 4))
+        plt.title("Selected ROI (Lead II)")
+        plt.imshow(self.roi_waveform, cmap='gray')
+        plt.show()
 
-    # Dynamically set the height threshold
-    height_threshold = np.max(smoothed_signal) * 0.05  # Adjust the multiplier as needed
+        plt.figure(figsize=(10, 4))
+        plt.plot(self.signal, label="Smoothed Signal")
+        plt.plot(self.peaks, self.signal[self.peaks], "rx", label="R-wave Peaks")
+        plt.title("R-wave Peak Detection")
+        plt.legend()
+        plt.show()
 
-    # Estimate signal noise level
-    signal_std = np.std(smoothed_signal)
+    def run_pipeline(self):
+        self.load_and_prepare_image()
+        self.detect_grid_spacing()
+        self.isolate_and_extract_waveform()
+        self.interpolate_waveform()
+        self.select_roi()
+        self.extract_1d_signal()
+        self.detect_r_peaks()
+        self.plot_results()
 
-    # Set prominence dynamically based on noise
-    prominence_threshold = 1.5 * signal_std  # can adjust 1.5 to 2.0 based on sensitivity
+        r_wave_distances, large_boxes, heart_rates = self.calculate_heart_rate()
 
-    # First pass: detect all possible peaks
-    initial_peaks, properties = find_peaks(
-    smoothed_signal,
-    height=height_threshold,
-    distance=dx*2,
-    prominence=prominence_threshold,
-    width=1)
+        print("R-wave distances (in pixels):", r_wave_distances)
+        print("Number of small boxes between R-waves:", large_boxes)
+        print("Heart rates (bpm):", heart_rates)
 
-    # Adaptive width filtering
-    # Calculate median width among initial detected peaks
-    if 'widths' in properties and len(properties['widths']) > 0:
-        median_width = np.median(properties['widths'])
-        width_threshold = 0.5 * median_width  # keep only peaks wider than 50% of median width
-    
-        # Keep only valid peaks
-        valid_indices = properties['widths'] >= width_threshold
-        final_peaks = initial_peaks[valid_indices]
-    else:
-        final_peaks = initial_peaks  # fallback if no width info available
+        mode_heart_rate = mode(heart_rates).mode
+        avg_mode_heart_rate = np.mean(mode_heart_rate)
+        print(f"Average of Mode Heart Rate: {avg_mode_heart_rate:.2f} bpm")
 
-    # Plot the detected peaks
-    plt.figure(figsize=(10, 4))
-    plt.plot(smoothed_signal, label="Smoothed Signal")
-    plt.plot(final_peaks, smoothed_signal[final_peaks], "rx", label="R-wave Peaks")
-    plt.title("Improved R-wave Peak Detection")
-    plt.legend()
-    plt.show()
-
-    # Calculate distances between consecutive R-wave peaks (in pixels)
-    r_wave_distances = np.diff(final_peaks)
-
-    # Convert pixel distances to the number of small boxes (1 mm = dx pixels)
-    large_boxes = r_wave_distances / dx
-
-    # Calculate heart rate for each R-R interval
-    heart_rates = 300 / large_boxes
-
-    # Display the results
-    print("R-wave distances (in pixels):", r_wave_distances)
-    print("Number of small boxes between R-waves:", large_boxes)
-    print("Heart rates (bpm):", heart_rates)
-
-    # Calculate the average heart rate
-    average_heart_rate = np.mean(heart_rates)
-    print(f"Average Heart Rate: {average_heart_rate:.2f} bpm")
 
 if __name__ == "__main__":
-    main()
+    processor = ECGProcessor(image_path='images/ed1.png')
+    try:
+        processor.run_pipeline()
+    except Exception as e:
+        print(f"An error occurred: {e}")
