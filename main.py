@@ -8,6 +8,7 @@ from ecg_image_loader import load_and_preprocess_image
 from grid_detection import robust_grid_spacing
 from isolate_waveform import isolate_waveform
 from waveform_extraction import extract_ecg_signal
+from roi_selector import ROISelector
 
 def bandpass_filter(signal, lowcut, highcut, fs, order=4):
     nyquist = 0.5 * fs
@@ -85,7 +86,7 @@ class ECGProcessor:
         # 1. Bandpass filter
         filtered = bandpass_filter(self.signal, 5, 15, fs, order=2)
         
-        # 2. Differentiation and squaring
+        # 2. Differentiation and squaringc
         diff = np.diff(filtered, prepend=filtered[0])
         squared = diff ** 2
         
@@ -130,22 +131,40 @@ class ECGProcessor:
             cv2.polylines(self.interpolated_waveform, [approx], isClosed=False, color=255, thickness=2)
 
     def select_roi(self):
+        """ TODO: batch mode
         color_binary = cv2.cvtColor(self.binary, cv2.COLOR_GRAY2BGR)
         h, w = self.binary.shape
         cv2.line(color_binary, (0, h//2), (w, h//2), (0, 255, 0), 1)
         cv2.line(color_binary, (w//2, 0), (w//2, h), (0, 255, 0), 1)
 
         print("Please select the region corresponding to the desired lead (e.g., Lead II).")
-        roi = cv2.selectROI("Select ROI", color_binary, showCrosshair=True, fromCenter=False)
+        roi = cv2.selectROI("Select ROI", color_binary, showCrosshair=False, fromCenter=False)
         cv2.destroyWindow("Select ROI")
 
         x, y, w, h = roi
         if w == 0 or h == 0:
             raise ValueError("Invalid ROI selected.")
-        self.roi_waveform = self.waveform[y:y+h, x:x+w]
+        if w > 0 & h > 0:
+            self.roi_waveform = self.waveform[y:y+h, x:x+w]
+        else:
+            print("No ROI selected")    
 
         if self.roi_waveform.size == 0:
-            raise ValueError("The selected ROI is empty.")
+            raise ValueError("The selected ROI is empty.") """
+
+        selector = ROISelector(self.binary)
+        roi_coords = selector.get_roi()
+
+        if roi_coords:
+            x, y, w, h = roi_coords
+            if w > 0 and h > 0:
+                self.roi_waveform = self.waveform[y:y+h, x:x+w]
+                cv2.imshow("Cropped ROI", self.roi_waveform)
+                cv2.waitKey(0)
+            else:
+                print("Empty ROI selected")
+        else:
+            print("ROI selection cancelled")            
 
     def extract_1d_signal(self, window_size=5):
         signal_1d = np.sum(self.roi_waveform, axis=0)
@@ -194,8 +213,8 @@ class ECGProcessor:
 
     def run_pipeline(self):
         self.load_and_prepare_image()
+        print("Stage 1")
         self.detect_grid_spacing()
-        self.isolate_and_extract_waveform()
         self.interpolate_waveform()
         self.select_roi()
         self.extract_1d_signal()
@@ -224,8 +243,9 @@ class ECGProcessor:
         print(f"Average heart rate (mode): {avg_mode_heart_rate:.2f} bpm")
 
 if __name__ == "__main__":
-    processor = ECGProcessor(image_path='images/sample.png')
+    processor = ECGProcessor(image_path='images/sample3.png')
     try:
         processor.run_pipeline()
     except Exception as e:
         print(f"An error occurred: {e}")
+        # print(cv2.getBuildInformation())

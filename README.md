@@ -94,6 +94,7 @@ graph TD
 - Mode-based average heart rate
 
 📝 TODO
+ - [ ] Run grid detection on cropped ROI (tmp)
  - [ ] Add CSV export for extracted signal and HR
  - [ ] Multi-lead support (Lead I, II, V1–V6)
  - [ ] Auto-lead segmentation from full ECG strips

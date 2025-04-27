@@ -13,6 +13,7 @@ def isolate_waveform(image, dx=None, dy=None, debug=True):
         binary = image.copy()
 
     # Use smaller kernels to avoid erasing the trace
+    # TODO: Adaptive kernel size
     horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, ( 33, 1))
     horizontal_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, horizontal_kernel, iterations=1)
 
@@ -21,6 +22,13 @@ def isolate_waveform(image, dx=None, dy=None, debug=True):
 
     grid_mask = cv2.bitwise_or(horizontal_lines, vertical_lines)
     waveform = cv2.bitwise_and(binary, cv2.bitwise_not(grid_mask))
+
+    """ # TODO: Skeletonization 
+    1. Morphological closing
+    2. Remove small specks
+    3. Skeletonization : cv2.ximgproc.thinning(cleaned, thinningType=cv2.ximgproc.THINNING_ZHANGSUENg)
+    
+    """
 
     if debug:
         import matplotlib.pyplot as plt
