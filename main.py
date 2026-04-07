@@ -53,23 +53,50 @@ class ECGProcessor:
         self.signal = None
         self.peaks = None
         self.sampling_freq = None
+        self.signal_quality = None
 
     def calculate_sampling_frequency(self):
         """Calculate sampling frequency from grid calibration (dx = px/mm, speed = 25 mm/s)."""
         if self.dx is None:
             raise ValueError("Grid spacing not detected — run detect_grid_spacing() first.")
-        self.sampling_freq = 25.0 * self.dx  # 25 mm/s * px/mm = px/s = Hz
+        self.sampling_freq = 25.0 * self.dx
         return self.sampling_freq
+
+    def calculate_signal_quality(self):
+        """Calculate Signal Quality Index (SQI) using power ratio in 5-15 Hz band."""
+        if self.signal is None:
+            raise ValueError("Signal not extracted — run extract_1d_signal() first.")
+
+        fs = self.sampling_freq
+        n = len(self.signal)
+
+        freqs = np.fft.rfftfreq(n, 1 / fs)
+        fft_vals = np.abs(np.fft.rfft(self.signal))
+
+        band_5_15_mask = (freqs >= 5) & (freqs <= 15)
+        band_power = np.sum(fft_vals[band_5_15_mask] ** 2)
+
+        total_power = np.sum(fft_vals ** 2)
+
+        if total_power > 0:
+            self.signal_quality = band_power / total_power
+        else:
+            self.signal_quality = 0.0
+
+        logger.info("Signal Quality Index (SQI): %.3f", self.signal_quality)
+
+        if self.signal_quality < 0.1:
+            logger.warning("Low signal quality detected — R-peak detection may be unreliable.")
 
     def _adaptive_threshold(self, signal, fs):
         """Dynamic threshold calculation for Pan-Tompkins detector."""
         thresholds = {
             'peak': np.mean(signal) * 2,
             'noise': np.mean(signal) * 0.5,
-            'rr_low': 0.3,   # 300 ms minimum RR
-            'rr_high': 2.0,  # 2000 ms maximum RR
+            'rr_low': 0.3,
+            'rr_high': 2.0,
         }
-        window = int(fs * 2)
+        window = int(fs * 8)
         for i in range(0, len(signal), window):
             segment = signal[i:i + window]
             thresholds['peak'] = 0.875 * thresholds['peak'] + 0.125 * np.max(segment)
@@ -128,6 +155,7 @@ class ECGProcessor:
                        'pantompkins' — Pan-Tompkins-inspired bandpass/integration pipeline.
         """
         fs = self.calculate_sampling_frequency()
+        self.calculate_signal_quality()
         if algorithm == 'pantompkins':
             self._detect_r_peaks_pantompkins(fs)
         else:
@@ -165,7 +193,7 @@ class ECGProcessor:
     def isolate_and_extract_waveform(self):
         self.waveform = isolate_waveform(self.binary, dx=self.dx, dy=self.dy, debug=False)
         self.times, self.volts, self.baseline = extract_ecg_signal(
-            self.waveform, dx=self.dx, dy=self.dy, debug=False
+            self.waveform, dx=self.dx, dy=self.dy, grayscale_image=self.gaus, debug=False
         )
 
     def interpolate_waveform(self):
@@ -179,16 +207,21 @@ class ECGProcessor:
     def select_roi(self):
         selector = ROISelector(self.binary)
         roi_coords = selector.get_roi()
-        if roi_coords:
-            x, y, w, h = roi_coords
-            if w > 0 and h > 0:
-                self.roi_waveform = self.waveform[y:y + h, x:x + w]
-                cv2.imshow("Cropped ROI", self.roi_waveform)
-                cv2.waitKey(0)
-            else:
-                logger.warning("Empty ROI selected")
-        else:
-            logger.warning("ROI selection cancelled")
+        
+        if not roi_coords:
+            logger.error("ROI selection cancelled")
+            raise ValueError("ROI selection was cancelled. The pipeline cannot continue without a selected lead.")
+
+        x, y, w, h = roi_coords
+        if w <= 0 or h <= 0:
+            logger.error("Empty ROI selected (w=%d, h=%d)", w, h)
+            raise ValueError("The selected ROI is empty. Please select a valid rectangular region on the ECG.")
+
+        # If valid, assign the waveform segment
+        self.roi_waveform = self.waveform[y:y + h, x:x + w]
+        cv2.imshow("Cropped ROI", self.roi_waveform)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows() # Good practice to close windows after use
 
     def extract_1d_signal(self, window_size=5):
         signal_1d = np.sum(self.roi_waveform, axis=0)

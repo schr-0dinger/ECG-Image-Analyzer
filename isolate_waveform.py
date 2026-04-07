@@ -2,6 +2,7 @@ import logging
 
 import cv2
 import numpy as np
+from skimage.morphology import thin
 
 __all__ = ['isolate_waveform']
 
@@ -66,6 +67,22 @@ def isolate_waveform(image, dx=None, dy=None, debug=True):
         "Noise filter: kept %d / %d components (min_area=%d px²)",
         kept, num_labels - 1, min_area,
     )
+
+    # Phase 2.1: Zhang-Suen skeletonization to thin waveform to 1-pixel width
+    # Also repair small gaps before skeletonization using morphological closing
+    if dx is not None and dy is not None:
+        gap_threshold = max(1, int(round(dx * 0.3)))
+        kernel_radius = max(1, gap_threshold // 2)
+    else:
+        gap_threshold = 5
+        kernel_radius = 2
+
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_radius * 2 + 1, kernel_radius * 2 + 1))
+    waveform_repaired = cv2.morphologyEx(waveform, cv2.MORPH_CLOSE, kernel)
+
+    binary_skel = waveform_repaired > 0
+    skeleton = thin(binary_skel)
+    waveform = (skeleton * 255).astype(np.uint8)
 
     if debug:
         import matplotlib.pyplot as plt
