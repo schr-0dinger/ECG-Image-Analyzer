@@ -1,5 +1,11 @@
+import logging
+
 import numpy as np
 import cv2
+
+__all__ = ['extract_ecg_signal', 'estimate_baseline']
+
+logger = logging.getLogger(__name__)
 
 def estimate_baseline(waveform_image):
     """

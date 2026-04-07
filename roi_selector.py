@@ -1,5 +1,8 @@
 import cv2
 
+__all__ = ['ROISelector']
+
+
 class ROISelector:
     def __init__(self, image, window_name="Select ROI"):
         self.image = image.copy()

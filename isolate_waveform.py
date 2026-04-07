@@ -1,10 +1,23 @@
+import logging
+
 import cv2
 import numpy as np
+
+__all__ = ['isolate_waveform']
+
+logger = logging.getLogger(__name__)
+
 
 def isolate_waveform(image, dx=None, dy=None, debug=True):
     """
     Suppress the ECG grid and enhance the waveform. Assumes input is grayscale or binary.
     Returns a binary image where the ECG trace is white on black.
+
+    Args:
+        image: grayscale or binary uint8 image.
+        dx: pixels per 1 mm horizontally (from grid calibration). Used to size kernels.
+        dy: pixels per 1 mm vertically (from grid calibration). Used to size kernels.
+        debug: if True, display intermediate images via matplotlib.
     """
     # If image is not already binary, threshold it
     if image.dtype != np.uint8 or np.max(image) > 1:
@@ -12,23 +25,25 @@ def isolate_waveform(image, dx=None, dy=None, debug=True):
     else:
         binary = image.copy()
 
-    # Use smaller kernels to avoid erasing the trace
-    # TODO: Adaptive kernel size
-    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, ( 33, 1))
+    # Kernel size = ~3 mm in each direction so that continuous grid lines are detected
+    # but the curved waveform (which only runs straight for <2 mm before turning) is not.
+    # Falls back to 33 px if calibration is unavailable.
+    if dx is not None and dy is not None:
+        kw = max(3, int(round(dx * 3)))
+        kh = max(3, int(round(dy * 3)))
+        logger.debug("Adaptive kernels: horizontal=%dpx, vertical=%dpx", kw, kh)
+    else:
+        kw = kh = 33
+        logger.warning("dx/dy not provided — using fallback kernel size of 33 px")
+
+    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kw, 1))
     horizontal_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, horizontal_kernel, iterations=1)
 
-    vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 33))
+    vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, kh))
     vertical_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, vertical_kernel, iterations=1)
 
     grid_mask = cv2.bitwise_or(horizontal_lines, vertical_lines)
     waveform = cv2.bitwise_and(binary, cv2.bitwise_not(grid_mask))
-
-    """ # TODO: Skeletonization 
-    1. Morphological closing
-    2. Remove small specks
-    3. Skeletonization : cv2.ximgproc.thinning(cleaned, thinningType=cv2.ximgproc.THINNING_ZHANGSUENg)
-    
-    """
 
     if debug:
         import matplotlib.pyplot as plt

@@ -1,8 +1,14 @@
-import cv2
+import logging
 import math
-import numpy as np
 from typing import Tuple, Union
+
+import cv2
+import numpy as np
 from deskew import determine_skew
+
+__all__ = ['load_and_preprocess_image']
+
+logger = logging.getLogger(__name__)
 
 
 def rotate(image: np.ndarray, angle: float, background: Union[int, Tuple[int, int, int]]) -> np.ndarray:
@@ -18,28 +24,24 @@ def rotate(image: np.ndarray, angle: float, background: Union[int, Tuple[int, in
     return cv2.warpAffine(image, rot_mat, (int(round(height)), int(round(width))), borderValue=background)
 
 def load_and_preprocess_image(image_path):
+    """Load, deskew, blur, and binarize an ECG image.
 
-    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)  # Greyscale         // B&W
-
+    Returns:
+        gray (np.ndarray): original grayscale image.
+        thresh (np.ndarray): Otsu-binarized result after deskewing and blurring.
+        blurred (np.ndarray): median-blurred deskewed image.
+    """
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     if image is None:
-        raise ValueError(f"Image at path {image_path} could not be loaded. Please check the path and file format.")
+        raise ValueError(f"Could not load image: {image_path}")
 
-    # Deskew the image first
     angle = determine_skew(image)
     if angle is None:
-        angle = 0  # Default to no rotation if skew cannot be determined
+        angle = 0.0
+    logger.debug("Deskew angle: %.2f°", angle)
 
-    deskewed_image = rotate(image, angle, (0,0,0))
-    cv2.imshow('Deskewed Image', deskewed_image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-
-    blurred = cv2.medianBlur(deskewed_image, 1)     # Gaussian blur     // To reduce noise
-
-                                                    # Otsu binarization // Highlights waveform
-    _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU) 
-
-    # Adaptive thresholding // Highlights waveform
-    # thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 9)
+    deskewed_image = rotate(image, angle, (0, 0, 0))
+    blurred = cv2.medianBlur(deskewed_image, 1)
+    _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
     return image, thresh, blurred

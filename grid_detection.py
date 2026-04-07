@@ -1,6 +1,12 @@
+import logging
+
 import numpy as np
 import cv2
 from scipy.signal import find_peaks
+
+__all__ = ['robust_grid_spacing', 'get_grid_spacing']
+
+logger = logging.getLogger(__name__)
 
 def get_grid_spacing(thresh, debug=False):
     """
@@ -48,7 +54,7 @@ def get_grid_spacing(thresh, debug=False):
             # too distorted → fallback to average
             avg = (dx+dy)/2
             if debug:
-                print(f"⚠️ distortion detected, forcing square: {dx:.1f},{dy:.1f} → {avg:.1f}")
+                logger.debug("Distortion detected, forcing square: %.1f, %.1f → %.1f", dx, dy, avg)
             dx = dy = avg
 
     return dx, dy
@@ -79,7 +85,7 @@ def robust_grid_spacing(binary, debug=False):
         if dx>0 and dy>0:
             results.append((dx, dy))
         elif debug:
-            print(f"  strip {i}: invalid spacing dx={dx},dy={dy}")
+            logger.debug("Strip %d: invalid spacing dx=%s, dy=%s", i, dx, dy)
     
     if not results:
         raise RuntimeError("No valid grid spacing detected in any strip.")
@@ -100,8 +106,8 @@ def robust_grid_spacing(binary, debug=False):
     final_dy = float(np.median(dys))
     
     if debug:
-        print("Per-strip dxs:", dxs)
-        print("Per-strip dys:", dys)
-        print(f"→ Final grid spacing: dx={final_dx:.2f}, dy={final_dy:.2f}")
+        logger.debug("Per-strip dxs: %s", dxs)
+        logger.debug("Per-strip dys: %s", dys)
+        logger.debug("Final grid spacing: dx=%.2f, dy=%.2f", final_dx, final_dy)
     
     return final_dx, final_dy
