@@ -43,7 +43,29 @@ def isolate_waveform(image, dx=None, dy=None, debug=True):
     vertical_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, vertical_kernel, iterations=1)
 
     grid_mask = cv2.bitwise_or(horizontal_lines, vertical_lines)
-    waveform = cv2.bitwise_and(binary, cv2.bitwise_not(grid_mask))
+    waveform  = cv2.bitwise_and(binary, cv2.bitwise_not(grid_mask))
+
+    # Phase 1.3: Remove noise specks via connected-component size filtering.
+    # Minimum component area = 5 % of a 1 mm² cell (in pixels²).
+    # This discards isolated dots from paper texture, ink splatter, and JPEG
+    # artefacts while keeping all genuine waveform segments.
+    if dx is not None and dy is not None:
+        min_area = max(3, int(dx * dy * 0.05))
+    else:
+        min_area = 3
+
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(waveform, connectivity=8)
+    cleaned = np.zeros_like(waveform)
+    kept = 0
+    for lbl in range(1, num_labels):           # label 0 is the background
+        if stats[lbl, cv2.CC_STAT_AREA] >= min_area:
+            cleaned[labels == lbl] = 255
+            kept += 1
+    waveform = cleaned
+    logger.debug(
+        "Noise filter: kept %d / %d components (min_area=%d px²)",
+        kept, num_labels - 1, min_area,
+    )
 
     if debug:
         import matplotlib.pyplot as plt

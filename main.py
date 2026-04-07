@@ -43,6 +43,7 @@ class ECGProcessor:
         self.gaus = None
         self.dx = None
         self.dy = None
+        self.grid_confidence = None
         self.waveform = None
         self.times = None
         self.volts = None
@@ -146,8 +147,17 @@ class ECGProcessor:
 
     def detect_grid_spacing(self):
         try:
-            self.dx, self.dy = robust_grid_spacing(self.binary, debug=False)
-            logger.info("Grid spacing: dx=%.2f px/mm, dy=%.2f px/mm", self.dx, self.dy)
+            self.dx, self.dy, self.grid_confidence = robust_grid_spacing(self.binary, debug=False)
+            logger.info(
+                "Grid spacing: dx=%.2f px/mm, dy=%.2f px/mm (confidence: %.2f)",
+                self.dx, self.dy, self.grid_confidence,
+            )
+            if self.grid_confidence < 0.4:
+                logger.warning(
+                    "Low grid detection confidence (%.2f) — measurements may be inaccurate. "
+                    "Check image quality or use manual calibration.",
+                    self.grid_confidence,
+                )
         except RuntimeError as e:
             logger.error("Grid detection failed: %s", e)
             raise
